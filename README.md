@@ -34,7 +34,8 @@ This project demonstrates a scalable, cloud-based system to ingest, process, and
 ---
 
 ##  System Architecture
-![image](https://github.com/user-attachments/assets/289b2c4c-f1c4-44c7-87a0-f318a9647904)
+![image](https://github.com/user-attachments/assets/87a5857b-d9e5-4727-9b27-3b8f8d1edf95)
+
 
 ##  How to Run
 
