@@ -1,0 +1,8 @@
+nohup: ignoring input
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+25/07/02 08:53:27 WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+25/07/02 08:53:27 WARN Utils: Service 'SparkUI' could not bind on port 4040. Attempting port 4041.
+25/07/02 08:53:27 WARN Utils: Service 'SparkUI' could not bind on port 4041. Attempting port 4042.
+25/07/02 08:53:29 WARN MetricsConfig: Cannot locate configuration: tried hadoop-metrics2-s3a-file-system.properties,hadoop-metrics2.properties
+[Stage 0:>                                                          (0 + 1) / 1]                                                                                [Stage 1:>                                                          (0 + 2) / 2][Stage 1:>                                                          (0 + 2) / 2][Stage 1:=============================>                             (1 + 1) / 2]                                                                                
