@@ -1,0 +1,30 @@
+*.csv
+*.tsv
+*.log
+*.zip
+*.png
+
+# Ignore environment and system folders
+.venv/
+venv/
+py310-env/
+__pycache__/
+.cache/
+.ssh/
+.vim/
+.ivy2/
+.streamlit/
+*.pyc
+*.log
+*.tgz
+*.zip
+*.hsts
+*.history
+
+# Ignore datasets and large binaries
+*.csv
+*.tsv
+nltk_data/
+aws/
+remove/
+
