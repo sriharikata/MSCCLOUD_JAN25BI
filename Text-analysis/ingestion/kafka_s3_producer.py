@@ -17,7 +17,7 @@ df = spark.read.option("header", True).csv(s3_path)
 # Function to send data to Kafka in parallel per partition
 def send_partition(partition):
     producer = KafkaProducer(
-        bootstrap_servers='35.170.203.165:9092',
+        bootstrap_servers='52.91.15.28:9092',
         value_serializer=lambda v: json.dumps(v).encode('utf-8')
     )
     for row in partition:
@@ -31,7 +31,7 @@ def send_partition(partition):
     producer.close()
 
 # Process each partition concurrently (better than collect())
-df.foreachPartition(send_partition)
+df.limit(1000).foreachPartition(send_partition)
 
 # Stop Spark session
 spark.stop()

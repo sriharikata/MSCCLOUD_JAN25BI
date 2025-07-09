@@ -1,138 +1,166 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+from collections import Counter
 from kafka import KafkaConsumer
 import json
-from collections import Counter
-from nltk.corpus import stopwords
-import nltk
+import boto3
+import io
 import time
+from datetime import datetime
 
-nltk.download('stopwords')
-STOP_WORDS = set(stopwords.words('english'))
+# Configurations
+KAFKA_TOPIC = "reviews"
+KAFKA_BOOTSTRAP_SERVERS = "52.91.15.28:9092"
+S3_BUCKET = "txt-analysis-results"
+S3_PREFIX = "benchmark/"
+STOP_WORDS = set(["the", "is", "in", "and", "a", "to", "of"])
 
-KAFKA_TOPIC = 'reviews'
-KAFKA_BOOTSTRAP_SERVERS = '35.170.203.165:9092'
+# Initialize S3 client
+s3_client = boto3.client('s3')
 
-# Initialize session state for analytics
-if 'run_analytics' not in st.session_state:
-    st.session_state['run_analytics'] = False
+# Helper: Load files from S3
+def load_s3_file(filename, file_type="csv"):
+    try:
+        obj = s3_client.get_object(Bucket=S3_BUCKET, Key=f"{S3_PREFIX}{filename}")
+        if file_type == "csv":
+            return pd.read_csv(io.BytesIO(obj['Body'].read()))
+        elif file_type == "json":
+            return json.loads(obj['Body'].read().decode('utf-8'))
+    except Exception as e:
+        st.error(f"Error loading {filename}: {e}")
+        return None
 
-st.title("📊 MSc Scalable Cloud Programming Dashboard")
-st.markdown("""
-This dashboard demonstrates **real-time streaming ingestion, live processing, and analytics** for your MSc project:
-- ✅ Ingest IMDB data from **S3 → Kafka**.
-- ✅ Display **live Top 10 Word Counts**.
-- ✅ Display **live Sentiment Analysis**.
-- ✅ Run **Batch Benchmarking**.
-""")
+# Streamlit page config
+st.set_page_config(page_title="Scalable Cloud Programming Dashboard", layout="wide")
+st.title("📊 Real Time Text Analysis Dashboard")
 
-# ---- Buttons ----
-col1, col2, col3 = st.columns(3)
-with col1:
-    if st.button("▶️ Start Producer"):
-        import subprocess
-        subprocess.Popen(['python3', 'ingestion/kafka_s3_producer.py'])
-        st.success("✅ Producer started.")
-with col2:
-    if st.button("▶️ Start Live Analytics"):
-        st.session_state['run_analytics'] = True
-with col3:
-    if st.button("⚡ Run Benchmark"):
-        import subprocess
-        subprocess.run(['python3', 'batch/Performance_hybrid_wordcount.py'])
-        st.success("✅ Benchmark completed.")
+# Sidebar controls
+st.sidebar.title("Controls")
+if st.sidebar.button("▶️ Start Producer"):
+    import subprocess
+    subprocess.Popen(["python3", "ingestion/kafka_s3_producer.py"])
+    st.sidebar.success("✅ Producer started.")
 
-st.markdown("---")
+if st.sidebar.button("⚡ Run Benchmark"):
+    import subprocess
+    subprocess.run(["python3", "batch/Performance_hybrid_wordcount.py"])
+    st.sidebar.success("✅ Benchmark completed and uploaded to S3.")
 
-# ---- Live Analytics ----
-if st.session_state['run_analytics']:
-    st.subheader("🔴 Live Stream Analytics")
-
-    word_placeholder = st.empty()
-    sentiment_placeholder = st.empty()
-    count_placeholder = st.empty()
+# Live Analytics without threading
+if st.sidebar.button("▶️ Refresh Live Analytics"):
+    consumer = KafkaConsumer(
+        KAFKA_TOPIC,
+        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+        value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+        auto_offset_reset='latest',
+        enable_auto_commit=True,
+        group_id=None,
+        consumer_timeout_ms=5000
+    )
 
     word_counter = Counter()
     sentiment_counter = Counter()
     total_count = 0
 
-    consumer = KafkaConsumer(
-        KAFKA_TOPIC,
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-        auto_offset_reset='earliest',
-        enable_auto_commit=True,
-        group_id=None
-    )
+    for message in consumer:
+        data = message.value
+        review = data.get('review', '')
+        sentiment = data.get('sentiment', '').lower()
+        words = [w.lower() for w in review.split() if w.isalpha() and w.lower() not in STOP_WORDS]
 
-    # Poll messages and update charts
-    while True:
-        raw_msgs = consumer.poll(timeout_ms=1000)
-        updated = False
+        word_counter.update(words)
+        sentiment_counter.update([sentiment])
+        total_count += 1
 
-        for tp, messages in raw_msgs.items():
-            for message in messages:
-                data = message.value
-                review = data.get('review', '')
-                sentiment = data.get('sentiment', '').lower()
+    st.subheader("🔴 Live Streaming Analytics")
 
-                words = [w.lower() for w in review.split() if w.isalpha() and w.lower() not in STOP_WORDS]
-                word_counter.update(words)
-                sentiment_counter.update([sentiment])
-                total_count += 1
-                updated = True
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Top 10 Words")
+        top_words_df = pd.DataFrame(word_counter.most_common(10), columns=["Word", "Count"]).set_index("Word")
+        st.bar_chart(top_words_df)
 
-        if updated:
-            top_words_df = pd.DataFrame(word_counter.most_common(10), columns=['Word', 'Count']).set_index('Word')
-            word_placeholder.bar_chart(top_words_df)
+    with col2:
+        st.subheader("Sentiment Distribution")
+        if sentiment_counter:
+            # Escape problematic characters in labels
+            labels = [label.replace('$', '\\$') for label in st.session_state['sentiment_counter'].keys()]
+            sizes = list(st.session_state['sentiment_counter'].values())
 
-            if sentiment_counter:
-                labels = list(sentiment_counter.keys())
-                sizes = list(sentiment_counter.values())
-                fig, ax = plt.subplots()
-                ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
-                ax.axis('equal')
-                sentiment_placeholder.pyplot(fig)
-                plt.close(fig)
+            fig, ax = plt.subplots()
+            ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+            ax.axis("equal")
+            st.pyplot(fig)
+            plt.close(fig)
 
-            count_placeholder.metric(label="Total Records Processed", value=str(total_count))
+    st.metric("Total Records Processed", str(total_count))
 
-        time.sleep(2)  # update every 2 seconds
-        st.rerun()
-
-# ---- Benchmark Display ----
+# Benchmark Results Section
 st.markdown("---")
 st.header("📈 Batch Benchmark Results")
+
+available_files = []
 try:
-    df = pd.read_csv("batch/benchmark_results.csv")
-    st.dataframe(df)
+    response = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=S3_PREFIX)
+    if 'Contents' in response:
+        available_files = [
+            obj['Key'].split('/')[-1]
+            for obj in response['Contents']
+            if obj['Key'].endswith('.csv')
+        ]
+except Exception as e:
+    st.error(f"Error listing S3 files: {e}")
 
-    fig1, ax1 = plt.subplots()
-    for w in sorted(df['Workers'].unique()):
-        subset = df[df['Workers'] == w]
-        ax1.plot(subset['Size'], subset['Throughput(rps)'], marker='o', label=f"{w} workers")
-    ax1.set_title("Throughput vs Dataset Size")
-    ax1.set_xlabel("Dataset Size")
-    ax1.set_ylabel("Throughput (records/sec)")
-    ax1.legend()
-    st.pyplot(fig1)
-    plt.close(fig1)
+selected_file = st.sidebar.selectbox(
+    "Select Benchmark Result CSV",
+    available_files,
+    index=0 if available_files else None
+)
 
-    fig2, ax2 = plt.subplots()
-    for w in sorted(df['Workers'].unique()):
-        subset = df[df['Workers'] == w]
-        ax2.plot(subset['Size'], subset['Latency(s/record)'], marker='o', label=f"{w} workers")
-    ax2.set_title("Latency vs Dataset Size")
-    ax2.set_xlabel("Dataset Size")
-    ax2.set_ylabel("Latency (s/record)")
-    ax2.legend()
-    st.pyplot(fig2)
-    plt.close(fig2)
+if selected_file:
+    df = load_s3_file(selected_file, "csv")
+    if df is not None:
+        st.subheader(f"Benchmark Results: {selected_file}")
+        st.dataframe(df, use_container_width=True)
 
-except FileNotFoundError:
-    st.info("⚠️ Run the benchmark to view charts.")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Throughput vs Dataset Size")
+            fig, ax = plt.subplots()
+            for w in sorted(df['Workers'].unique()):
+                subset = df[df['Workers'] == w]
+                ax.plot(subset['Size'], subset['Throughput(rps)'], marker='o', label=f"{w} workers")
+            ax.set_xlabel("Dataset Size")
+            ax.set_ylabel("Throughput (records/sec)")
+            ax.legend()
+            st.pyplot(fig)
+            plt.close(fig)
+       
+        with col2:
+            st.subheader("Latency vs Dataset Size")
+            fig, ax = plt.subplots()
+            for w in sorted(df['Workers'].unique()):
+                subset = df[df['Workers'] == w]
+                ax.plot(subset['Size'], subset['Latency(s/record)'], marker='o', label=f"{w} workers")
+            ax.set_xlabel("Dataset Size")
+            ax.set_ylabel("Latency (s/record)")
+
+            # Improve precision using scientific notation
+            ax.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+
+            # Optional: Set manual limits to enhance visibility
+            ymin = max(subset['Latency(s/record)'].min() * 0.9, 0)
+            ymax = subset['Latency(s/record)'].max() * 1.1
+            ax.set_ylim([ymin, ymax])
+
+            ax.legend()
+            st.pyplot(fig)
+            plt.close(fig)
+
+else:
+    st.info("Upload benchmark CSV files to your S3 bucket for visualization.")
 
 st.markdown("---")
-st.info("✅ This dashboard is now fully ready to demonstrate your MSc submission with clean, live analytics and benchmarking.")
+st.info("✅ This final clean dashboard enables safe, thread-free live streaming analytics and batch benchmarking visualization for your MSc submission.")
 
