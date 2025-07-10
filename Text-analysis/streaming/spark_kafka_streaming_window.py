@@ -1,47 +1,51 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StringType
-from pyspark.sql.functions import from_json, col, explode, split, window, current_timestamp
+from pyspark.sql.functions import from_json, col, explode, split, window
 
-# Defining schema for incoming Kafka JSON messages
+# ✅ Define schema for incoming Kafka JSON messages
 schema = StructType() \
     .add("review", StringType()) \
     .add("sentiment", StringType())
 
-# Creating Spark Session
+# ✅ Create Spark Session
 spark = SparkSession.builder \
-    .appName("KafkaStreamingSlidingWindow") \
+    .appName("SparkKafkaSlidingWindowDemo") \
     .getOrCreate()
 
-# Reading streaming data from Kafka
-df_raw = spark.readStream \
+spark.sparkContext.setLogLevel("ERROR")
+print("\n✅ Spark Kafka Sliding Window Consumer running for CA demo...\n")
+
+# ✅ Read streaming data from Kafka
+kafka_df = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "localhost:9092") \
     .option("subscribe", "reviews") \
-    .option("startingOffsets", "latest") \
+    .option("startingOffsets", "earliest") \
     .load()
 
-# Extracting value and apply schema
-df = df_raw.selectExpr("CAST(value AS STRING)") \
-    .select(from_json(col("value"), schema).alias("data")) \
-    .select("data.review")
+# ✅ Parse JSON, keep Kafka message timestamp
+parsed = kafka_df.selectExpr("CAST(value AS STRING)", "timestamp") \
+    .select(from_json(col("value"), schema).alias("data"), col("timestamp")) \
+    .select("data.review", "timestamp")
 
-# Tokenize words and assign current timestamp to each row
-words = df.select(
+# ✅ Tokenize reviews into words
+words = parsed.select(
     explode(split(col("review"), r"\W+")).alias("word"),
-    current_timestamp().alias("ts")  
+    col("timestamp").alias("ts")
 ).where("word != ''")
 
-# Sliding window word count: 10-second window sliding every 5 seconds
-windowed_counts = words.groupBy(
-    window(col("ts"), "10 seconds", "5 seconds"),
+# Smaller window for faster updates
+windowed = words.groupBy(
+    window(col("ts"), "30 seconds", "10 seconds"),
     col("word")
 ).count().orderBy(col("count").desc())
 
-# Writing results to console in streaming mode
-query = windowed_counts.writeStream \
+# Stream output with faster trigger
+query = windowed.writeStream \
     .outputMode("complete") \
     .format("console") \
-    .option("truncate", False) \
+    .option("truncate", "false") \
+    .trigger(processingTime="5 seconds") \
     .start()
 
 query.awaitTermination()

@@ -4,7 +4,7 @@ import json
 import time
 
 KAFKA_TOPIC = "reviews"
-KAFKA_BOOTSTRAP_SERVERS = "52.91.15.28:9092"
+KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
 STOP_WORDS = set(["the", "is", "in", "and", "a", "to", "of"])
 
 consumer = KafkaConsumer(
