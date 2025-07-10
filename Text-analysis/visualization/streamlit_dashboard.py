@@ -11,7 +11,8 @@ from datetime import datetime
 
 # Configurations
 KAFKA_TOPIC = "reviews"
-KAFKA_BOOTSTRAP_SERVERS = "52.91.15.28:9092"
+#KAFKA_BOOTSTRAP_SERVERS = "52.91.15.28:9092"
+KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
 S3_BUCKET = "txt-analysis-results"
 S3_PREFIX = "benchmark/"
 STOP_WORDS = set(["the", "is", "in", "and", "a", "to", "of"])
@@ -33,7 +34,7 @@ def load_s3_file(filename, file_type="csv"):
 
 # Streamlit page config
 st.set_page_config(page_title="Scalable Cloud Programming Dashboard", layout="wide")
-st.title("📊 Real Time Text Analysis Dashboard")
+st.title("📊 Scalable Cloud Programming Dashboard")
 
 # Sidebar controls
 st.sidebar.title("Controls")
@@ -136,28 +137,37 @@ if selected_file:
             ax.legend()
             st.pyplot(fig)
             plt.close(fig)
-       
         with col2:
-            st.subheader("Latency vs Dataset Size")
-            fig, ax = plt.subplots()
+            st.subheader("Latency vs Dataset Size for WordCount Benchmark")
+        
+            fig, ax = plt.subplots(figsize=(8, 5))
+        
             for w in sorted(df['Workers'].unique()):
                 subset = df[df['Workers'] == w]
-                ax.plot(subset['Size'], subset['Latency(s/record)'], marker='o', label=f"{w} workers")
-            ax.set_xlabel("Dataset Size")
-            ax.set_ylabel("Latency (s/record)")
-
-            # Improve precision using scientific notation
-            ax.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
-
-            # Optional: Set manual limits to enhance visibility
-            ymin = max(subset['Latency(s/record)'].min() * 0.9, 0)
-            ymax = subset['Latency(s/record)'].max() * 1.1
-            ax.set_ylim([ymin, ymax])
-
-            ax.legend()
+                ax.plot(
+                    subset['Size'],
+                    subset['Latency(s/record)'],
+                    marker='o',
+                    label=f"{w} workers"
+                )
+        
+            ax.set_xlabel("Dataset Size (records)")
+            ax.set_ylabel("Latency (seconds/record)")
+            ax.set_title("Latency vs Dataset Size (Log Scale)")
+        
+            # Use log scale to show small differences clearly
+            ax.set_yscale('log')
+        
+            # Add grid for readability
+            ax.grid(True, linestyle='--', alpha=0.5)
+        
+            # Position the legend clearly
+            ax.legend(title="Workers", loc='upper left')
+        
+            # Render the plot in Streamlit
             st.pyplot(fig)
             plt.close(fig)
-
+       
 else:
     st.info("Upload benchmark CSV files to your S3 bucket for visualization.")
 
